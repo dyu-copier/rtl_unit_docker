@@ -17,6 +17,10 @@ FROM ghcr.io/librelane/librelane:3.0.4
 #                          not found" without this.
 # python3Packages.pip    : Nix Python envs strip pip; install explicitly so
 #                          we can create a venv in a writable location
+# yices / z3             : SMT solvers for SymbiYosys (sby's smtbmc engine
+#                          defaults to yices; the base image's z3 is not on
+#                          PATH at runtime, so formal falls back to abc and
+#                          then fails reconstructing traces via yices)
 RUN nix-channel --add https://nixos.org/channels/nixos-23.11 nixpkgs \
  && nix-channel --update \
  && nix-env -iA \
@@ -26,6 +30,8 @@ RUN nix-channel --add https://nixos.org/channels/nixos-23.11 nixpkgs \
       nixpkgs.wget \
       nixpkgs.curl \
       nixpkgs.gcc \
+      nixpkgs.yices \
+      nixpkgs.z3 \
       nixpkgs.python3Packages.pip \
       nixpkgs.python3Packages.setuptools \
       nixpkgs.python3Packages.wheel
