@@ -119,51 +119,5 @@ RUN ciel enable --pdk sky130 --pdk-root ${PDK_ROOT} ${SKY130_HASH}
 RUN bash -c 'mkdir -p /bin && ln -sf "$(which bash)" /bin/bash'
 RUN nix-env -iA nixpkgs.gnused
 
-# GitHub Actions injects its own prebuilt (glibc-linked) Node.js binary into
-# container-based jobs at /__e/nodeXX/bin/node for internal steps (e.g. the
-# checkout action and the post-job "determine container OS" cleanup step)
-# -- this fails on a Nix root two ways, confirmed against real CI runs:
-#   1. "no such file or directory" executing node itself, since Nix's
-#      glibc lives under /nix/store/... and this image never populates
-#      the conventional /lib64/ld-linux-x86-64.so.2 dynamic-linker path
-#      that path-injected glibc binaries hard-code as their interpreter.
-#   2. once (1) is fixed, node still fails to load libstdc++.so.6, since
-#      it isn't on this image's default library search path either.
-#
-# For (2): do NOT use a global LD_LIBRARY_PATH (tried this first -- broke
-# `yosys`, which silently started resolving an OLDER libstdc++ instead of
-# the newer one it actually needs, since LD_LIBRARY_PATH takes priority
-# over a binary's own RPATH/RUNPATH). Also do NOT rely on `ldd`+`awk` to
-# discover it, or `ldconfig` to register it (this minimal Nix root has
-# neither `awk` nor `ldconfig` -- confirmed via a failed build, exit 127
-# each time). Instead, symlink libstdc++.so.6 from the nixpkgs.gcc
-# package (installed above) directly into /lib64 -- one of the dynamic
-# linker's own hard-coded default search directories, consulted only
-# AFTER any binary's own RPATH/RUNPATH, so tools that already resolve
-# their own libstdc++ correctly (yosys) are unaffected; only Node (which
-# has no such mechanism here) falls through to it. Uses only find/ln/
-# realpath, the same tools the ld-linux-x86-64.so.2 fix below already
-# uses successfully.
-RUN bash << 'EOF'
-set -euo pipefail
-nix-env -iA nixpkgs.glibc
-mkdir -p /lib64
-ld_so=$(find /root/.nix-profile /nix/store -maxdepth 4 -name 'ld-linux-x86-64.so.2' 2>/dev/null | head -1)
-if [ -z "$ld_so" ]; then
-    echo "ERROR: could not locate ld-linux-x86-64.so.2 under the Nix store" >&2
-    exit 1
-fi
-ln -sf "$(realpath "$ld_so")" /lib64/ld-linux-x86-64.so.2
-echo "Linked dynamic linker: /lib64/ld-linux-x86-64.so.2 -> $(realpath "$ld_so")"
-
-libstdcxx_path=$(find /root/.nix-profile /nix/store -maxdepth 4 -name 'libstdc++.so.6' 2>/dev/null | head -1)
-if [ -z "$libstdcxx_path" ]; then
-    echo "ERROR: could not locate libstdc++.so.6 under the Nix store" >&2
-    exit 1
-fi
-ln -sf "$(realpath "$libstdcxx_path")" /lib64/libstdc++.so.6
-echo "Linked fallback libstdc++.so.6: /lib64/libstdc++.so.6 -> $(realpath "$libstdcxx_path")"
-EOF
-
 WORKDIR /work
 CMD ["/bin/bash"]
